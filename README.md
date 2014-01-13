@@ -12,3 +12,8 @@ Run from a command line, specifying the folder to be scanned as an argument. Exa
 aviscan "C:\videos"
 
 Generates a log file in the aviscan.exe folder with the same output as what is printed to the screen
+
+Screenshot
+==========
+
+![AVIScan Screenshot](/screenshot.png)
