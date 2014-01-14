@@ -5,12 +5,18 @@ using System.Text;
 using System.IO;
 using System.Diagnostics;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace AVIScan
 {
     class Program
     {
         static string ScanFolder;
+
+        /// <summary>
+        /// Maximum time to allow FFMPEG process to run (sometimes hangs up on badly broken files)
+        /// </summary>
+        static int Timeout = 10;
 
         /// <summary>
         /// Some basic stats
@@ -138,69 +144,78 @@ namespace AVIScan
         /// <returns></returns>
         static bool _testFile(string file)
         {
-            Process p = new Process();
-            ProcessStartInfo startInfo = new ProcessStartInfo();
-
-            p.StartInfo.UseShellExecute = false;
-            p.StartInfo.RedirectStandardOutput = true;
-            p.StartInfo.RedirectStandardError = true;
-            //p.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
-            p.StartInfo.FileName = "ffmpeg.exe";
-            p.StartInfo.Arguments = "-i \"" + file + "\" -v error -c copy -f null -";
-
-            p.Start();
-            string output = p.StandardOutput.ReadToEnd();
-            string error = p.StandardError.ReadToEnd();
-            p.WaitForExit();
-
-            if (!String.IsNullOrWhiteSpace(error))
+            using (Process p = new Process())
             {
-                // if we have an error string, we might just have some warnings we dont care about
+                p.StartInfo.UseShellExecute = false;
+                p.StartInfo.RedirectStandardOutput = true;
+                p.StartInfo.RedirectStandardError = true;
+                p.StartInfo.FileName = "ffmpeg.exe";
+                p.StartInfo.Arguments = "-i \"" + file + "\" -v error -c copy -f null -";
 
-                string[] lines = error.Replace("\r\n", "\n").Split('\n');
-                List<string> validErrors = new List<string>();
-
-                foreach (string line in lines)
+                StringBuilder errorSB = new StringBuilder();
+                p.ErrorDataReceived += (sender, e) =>
                 {
-                    // idea is to continue past any lines we dont want
+                    errorSB.AppendLine(e.Data);
+                };
 
-                    if (String.IsNullOrWhiteSpace(line)) continue;
+                p.Start();
+                p.BeginErrorReadLine();
 
-                    if (line.Contains("Application provided invalid, non monotonically increasing dts to muxer") ||
-                        line.Contains("Last message repeated"))
+                if (!p.WaitForExit(Timeout * 1000))
+                {
+                    p.Kill();
+                }
+
+                string error = errorSB.ToString();
+                if (!String.IsNullOrWhiteSpace(error))
+                {
+                    // if we have an err * 1000ng, we might just have some warnings we dont care about
+
+                    string[] lines = error.Replace("\r\n", "\n").Split('\n');
+                    List<string> validErrors = new List<string>();
+
+                    foreach (string line in lines)
                     {
-                        continue;
-                    }
+                        // idea is to continue past any lines we dont want
 
-                    // only consider "header missing" an error if the hex location specified is 0 (start of file)
-                    // the ones that are partway in seem to play alright
-                    Regex r = new Regex(@"@ ([a-z\d]+)] header missing", RegexOptions.IgnoreCase);
-                    Match m = r.Match(line);
-                    if (m.Success)
-                    {
-                        int location = Convert.ToInt32(m.Groups[1].Captures[0].Value, 16);
-                        if (location > 0)
+                        if (String.IsNullOrWhiteSpace(line)) continue;
+
+                        if (line.Contains("Application provided invalid, non monotonically increasing dts to muxer") ||
+                            line.Contains("Last message repeated"))
                         {
                             continue;
                         }
+
+                        // only consider "header missing" an error if the hex location specified is 0 (start of file)
+                        // the ones that are partway in seem to play alright
+                        Regex r = new Regex(@"@ ([a-z\d]+)] header missing", RegexOptions.IgnoreCase);
+                        Match m = r.Match(line);
+                        if (m.Success)
+                        {
+                            int location = Convert.ToInt32(m.Groups[1].Captures[0].Value, 16);
+                            if (location > 0)
+                            {
+                                continue;
+                            }
+                        }
+
+                        validErrors.Add(line);
                     }
 
-                    validErrors.Add(line);
-                }
-
-                if (validErrors.Count > 0)
-                {
-                    if (Debugger.IsAttached)
+                    if (validErrors.Count > 0)
                     {
-                        // while testing, print any errors we come across for double-checking later
-                        PrintLine(String.Join(", ", validErrors));
+                        if (Debugger.IsAttached)
+                        {
+                            // while testing, print any errors we come across for double-checking later
+                            // PrintLine(String.Join(", ", validErrors));
+                        }
+                        return false;
                     }
-                    return false;
                 }
-            }
 
-            // if the error string is empty, there was no error. easy!
-            return true;
+                // if the error string is empty, there was no error. easy!
+                return true;
+            }
         }
 
         static void die(string message)
