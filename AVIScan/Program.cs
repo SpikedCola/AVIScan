@@ -94,23 +94,30 @@ namespace AVIScan
             Fails = 0;
 
             // only print if we have files
-            string[] files = Directory.GetFiles(scanFolder, "*.avi");
-            if (files.Length > 0)
+            try
             {
-                PrintLine("[" + scanFolder + "]");
-                foreach (string file in files)
+                string[] files = Directory.GetFiles(scanFolder, "*.avi");
+                if (files.Length > 0)
                 {
-                    ScanFile(file);
+                    PrintLine("[" + scanFolder + "]");
+                    foreach (string file in files)
+                    {
+                        ScanFile(file);
+                    }
+                    // write totals
+                    PrintLine("[Totals: " + Successes + " success(es), " + Fails + " failure(s)]" + Environment.NewLine);
                 }
-                // write totals
-                PrintLine("[Totals: " + Successes + " success(es), " + Fails + " failure(s)]" + Environment.NewLine);
-            }
 
-            // recurse into subdirectories
-            string[] directories = Directory.GetDirectories(scanFolder);
-            foreach (string directory in directories)
-            {
-                BeginScan(directory);
+                // recurse into subdirectories
+                string[] directories = Directory.GetDirectories(scanFolder);
+                foreach (string directory in directories)
+                {
+                    BeginScan(directory);
+                }
+            }
+            catch (UnauthorizedAccessException)
+            { 
+                // just skip unauthorized stuff (system volume info) for now 
             }
         }
 
